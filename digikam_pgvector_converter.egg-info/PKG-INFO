@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: digikam-pgvector-converter
+Version: 0.1.0
+Requires-Dist: mysql-connector-python
+Requires-Dist: psycopg2-binary
+Requires-Dist: pgvector
+Requires-Dist: numpy

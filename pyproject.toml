@@ -1,0 +1,14 @@
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "digikam-pgvector-converter"
+version = "0.1.0"
+dependencies = [
+    "mysql-connector-python",
+    "psycopg2-binary",
+    "pgvector",
+    "numpy",
+]
