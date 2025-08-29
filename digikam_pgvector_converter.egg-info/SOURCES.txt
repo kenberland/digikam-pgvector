@@ -1,8 +1,0 @@
-README.md
-mysql_to_pgvector.py
-pyproject.toml
-digikam_pgvector_converter.egg-info/PKG-INFO
-digikam_pgvector_converter.egg-info/SOURCES.txt
-digikam_pgvector_converter.egg-info/dependency_links.txt
-digikam_pgvector_converter.egg-info/requires.txt
-digikam_pgvector_converter.egg-info/top_level.txt
