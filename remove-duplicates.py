@@ -17,7 +17,7 @@ SELECT
 FROM Images AS I
 JOIN Albums AS A ON I.album = A.id
 JOIN AlbumRoots AS AR ON A.albumRoot = AR.id
-WHERE I.id = 58404
+WHERE I.id = 713
 """
 
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"

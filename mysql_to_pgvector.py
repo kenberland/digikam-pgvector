@@ -25,17 +25,18 @@ def convert_blob_to_vector(blob):
     if len(blob) != BLOB_SIZE:
         raise ValueError(f"Invalid blob size: expected {BLOB_SIZE}, got {len(blob)}")
 
-    # Unpack the blob using the format string for big-endian data.
-    # >i: version (4-byte signed int)
-    # >3d: 3 averages (8-byte double)
-    # >120i: 120 coefficients (4-byte signed int)
     version, avg1, avg2, avg3, *coeffs = struct.unpack(">i3d120i", blob)
 
     if version != 1:
         print(f"Warning: Unexpected blob version: {version}")
 
-    # Combine averages and coefficients into a single vector.
-    vector = [avg1, avg2, avg3] + coeffs
+    # Sort the coefficients for each channel to create a canonical representation.
+    coeffs_y = sorted(coeffs[0:40])
+    coeffs_i = sorted(coeffs[40:80])
+    coeffs_q = sorted(coeffs[80:120])
+
+    # Combine averages and sorted coefficients into a single vector.
+    vector = [avg1, avg2, avg3] + coeffs_y + coeffs_i + coeffs_q
     return np.array(vector, dtype=np.float32)
 
 
