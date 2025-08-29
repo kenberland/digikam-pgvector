@@ -9,12 +9,21 @@ import math
 import dominate
 from dominate.tags import div, h1, a, span, img, p, b, br, link
 
-GET_ALL_IMAGE_IDS = "SELECT id, name FROM Images LIMIT 100"
+# --- Database Queries ---
+
+GET_ALL_IMAGES_FOR_PROCESSING = """
+SELECT
+    I.id,
+    CONCAT(AR.specificPath, A.relativePath, '/', I.name) AS fullPath
+FROM Images AS I
+JOIN Albums AS A ON I.album = A.id
+JOIN AlbumRoots AS AR ON A.albumRoot = AR.id
+WHERE I.id = 715
+"""
+
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
 GET_IMAGE_VECTOR = "SELECT matrix FROM ImageHaarMatrix WHERE imageid = %s"
-FIND_SIMILAR_IMAGES = (
-    "SELECT imageid FROM ImageHaarMatrix WHERE imageid != %s AND matrix <-> %s < %s"
-)
+FIND_SIMILAR_IMAGES = "SELECT imageid, matrix <-> %s AS distance FROM ImageHaarMatrix ORDER BY distance LIMIT 10"
 GET_IMAGE_DETAILS = """
 SELECT
     I.id,
@@ -90,7 +99,7 @@ def generate_html_page(duplicate_sets, page_num, total_pages, output_dir):
                         p(b("Reference (Keep)"))
                         img(src=ref_image["path"], _class="reference-image")
                         with p(_class="caption"):
-                            text(ref_image["path"])
+                            div(ref_image["path"])
                             br()
                             div(f"Date: {ref_image['date']}")
                             br()
@@ -177,32 +186,30 @@ def main():
 
         # Use an unbuffered cursor to iterate through all images
         main_mysql_cursor = mysql_conn.cursor(buffered=False)
-        main_mysql_cursor.execute(GET_ALL_IMAGE_IDS)
+        main_mysql_cursor.execute(GET_ALL_IMAGES_FOR_PROCESSING)
 
         processed_images = set()
         all_duplicate_sets = []
 
         print(f"Processing {total_images} images...")
 
-        for i, (image_id, image_name) in enumerate(main_mysql_cursor):
-            print(f"  {i}/{total_images}...")
+        for i, (image_id, full_path) in enumerate(main_mysql_cursor):
+            print(f"  {i}/{total_images}: {full_path}")
 
             if image_id in processed_images:
                 continue
-
-            print(f"Processing Image ID {image_id} ({image_name})")
 
             postgres_cursor.execute(GET_IMAGE_VECTOR, (image_id,))
             result = postgres_cursor.fetchone()
             if not result:
                 continue
             query_vector = result[0]
+            print(f"Found {query_vector.shape[0]}-dimensional vector")
 
-            postgres_cursor.execute(
-                FIND_SIMILAR_IMAGES, (image_id, query_vector, args.threshold)
-            )
+            postgres_cursor.execute(FIND_SIMILAR_IMAGES, (query_vector,))
             similar_images = postgres_cursor.fetchall()
-            print(f"Found {len(similar_images)} similar images.")
+            print(f"There are {len(similar_images)} similar images")
+
             if similar_images:
                 duplicate_set_ids = {image_id} | {row[0] for row in similar_images}
                 processed_images.update(duplicate_set_ids)
@@ -247,7 +254,6 @@ def main():
         if "mysql_conn" in locals() and mysql_conn.is_connected():
             mysql_conn.close()
         if "postgres_conn" in locals():
-            postgres_cursor.close()
             postgres_conn.close()
 
 
