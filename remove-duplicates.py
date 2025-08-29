@@ -9,8 +9,7 @@ import math
 import dominate
 from dominate.tags import div, h1, a, span, img, p, b, br, link
 
-# --- Database Queries ---
-
+PICTURE_PATH = "/mnt/backup-3"
 GET_ALL_IMAGES_FOR_PROCESSING = """
 SELECT
     I.id,
@@ -18,7 +17,7 @@ SELECT
 FROM Images AS I
 JOIN Albums AS A ON I.album = A.id
 JOIN AlbumRoots AS AR ON A.albumRoot = AR.id
-WHERE I.id = 715
+WHERE I.id = 58404
 """
 
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
@@ -27,7 +26,7 @@ FIND_SIMILAR_IMAGES = "SELECT imageid, matrix <-> %s AS distance FROM ImageHaarM
 GET_IMAGE_DETAILS = """
 SELECT
     I.id,
-    CONCAT(AR.specificPath, A.relativePath, I.name) AS fullPath,
+    CONCAT(AR.specificPath, A.relativePath, '/', I.name) AS fullPath,
     I.fileSize,
     II.creationDate
 FROM Images AS I
@@ -97,7 +96,11 @@ def generate_html_page(duplicate_sets, page_num, total_pages, output_dir):
                     ref_image = duplicate_set["reference"]
                     with div(_class="image-container"):
                         p(b("Reference (Keep)"))
-                        img(src=ref_image["path"], _class="reference-image")
+                        p(f"ID: {ref_image['id']}")
+                        img(
+                            src=PICTURE_PATH + ref_image["path"],
+                            _class="reference-image",
+                        )
                         with p(_class="caption"):
                             div(ref_image["path"])
                             br()
@@ -108,7 +111,11 @@ def generate_html_page(duplicate_sets, page_num, total_pages, output_dir):
                     for dup_image in duplicate_set["duplicates"]:
                         with div(_class="image-container"):
                             p("Duplicate (Remove)")
-                            img(src=dup_image["path"], _class="duplicate-image")
+                            p(f"ID: {dup_image['id']}")
+                            img(
+                                src=PICTURE_PATH + dup_image["path"],
+                                _class="duplicate-image",
+                            )
                             with p(_class="caption"):
                                 div(dup_image["path"])
                                 br()
