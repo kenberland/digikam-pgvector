@@ -7,9 +7,10 @@ import os
 from datetime import datetime
 import math
 import dominate
-from dominate.tags import link, div, h1, p, img, a, span, b, br
+from dominate.tags import div, h1, a, span, img, p, b, br, link
 
-GET_ALL_IMAGE_IDS = "SELECT id FROM Images"
+GET_ALL_IMAGE_IDS = "SELECT id, name FROM Images LIMIT 100"
+COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
 GET_IMAGE_VECTOR = "SELECT matrix FROM ImageHaarMatrix WHERE imageid = %s"
 FIND_SIMILAR_IMAGES = (
     "SELECT imageid FROM ImageHaarMatrix WHERE imageid != %s AND matrix <-> %s < %s"
@@ -34,7 +35,9 @@ body { font-family: sans-serif; margin: 2em; }
 .image-grid { display: flex; flex-wrap: wrap; }
 .image-container { margin: 1em; text-align: center; }
 .image-container img {
-  max-width: 200px; max-height: 200px; border: 2px solid transparent;
+  max-width: 200px;
+  max-height: 200px;
+  border: 2px solid transparent;
 }
 .reference-image { border-color: green !important; }
 .duplicate-image { border-color: red !important; }
@@ -87,7 +90,7 @@ def generate_html_page(duplicate_sets, page_num, total_pages, output_dir):
                         p(b("Reference (Keep)"))
                         img(src=ref_image["path"], _class="reference-image")
                         with p(_class="caption"):
-                            div(ref_image["path"])
+                            text(ref_image["path"])
                             br()
                             div(f"Date: {ref_image['date']}")
                             br()
@@ -154,7 +157,8 @@ def main():
             password=mysql_url.password,
             database=mysql_url.path[1:],
         )
-        mysql_cursor = mysql_conn.cursor()
+        # Use a separate cursor for fetching details inside the loop
+        detail_mysql_cursor = mysql_conn.cursor()
 
         postgres_conn = psycopg2.connect(
             host=postgres_url.hostname,
@@ -166,19 +170,27 @@ def main():
         register_vector(postgres_conn)
 
         # --- Main Processing ---
-        mysql_cursor.execute(GET_ALL_IMAGE_IDS)
-        all_image_ids = [row[0] for row in mysql_cursor.fetchall()]
+        count_cursor = mysql_conn.cursor()
+        count_cursor.execute(COUNT_ALL_IMAGES)
+        total_images = count_cursor.fetchone()[0]
+        count_cursor.close()
+
+        # Use an unbuffered cursor to iterate through all images
+        main_mysql_cursor = mysql_conn.cursor(buffered=False)
+        main_mysql_cursor.execute(GET_ALL_IMAGE_IDS)
+
         processed_images = set()
         all_duplicate_sets = []
 
-        print(f"Processing {len(all_image_ids)} images...")
+        print(f"Processing {total_images} images...")
 
-        for i, image_id in enumerate(all_image_ids):
-            if i > 0 and i % 100 == 0:
-                print(f"  {i}/{len(all_image_ids)}...")
+        for i, (image_id, image_name) in enumerate(main_mysql_cursor):
+            print(f"  {i}/{total_images}...")
 
             if image_id in processed_images:
                 continue
+
+            print(f"Processing Image ID {image_id} ({image_name})")
 
             postgres_cursor.execute(GET_IMAGE_VECTOR, (image_id,))
             result = postgres_cursor.fetchone()
@@ -190,15 +202,15 @@ def main():
                 FIND_SIMILAR_IMAGES, (image_id, query_vector, args.threshold)
             )
             similar_images = postgres_cursor.fetchall()
-
+            print(f"Found {len(similar_images)} similar images.")
             if similar_images:
                 duplicate_set_ids = {image_id} | {row[0] for row in similar_images}
                 processed_images.update(duplicate_set_ids)
 
                 duplicate_details = [
-                    get_image_details(mysql_cursor, dup_id)
+                    get_image_details(detail_mysql_cursor, dup_id)
                     for dup_id in duplicate_set_ids
-                    if get_image_details(mysql_cursor, dup_id) is not None
+                    if get_image_details(detail_mysql_cursor, dup_id) is not None
                 ]
 
                 if len(duplicate_details) > 1:
@@ -233,7 +245,6 @@ def main():
 
     finally:
         if "mysql_conn" in locals() and mysql_conn.is_connected():
-            mysql_cursor.close()
             mysql_conn.close()
         if "postgres_conn" in locals():
             postgres_cursor.close()
