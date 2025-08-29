@@ -22,7 +22,7 @@ WHERE I.id = 713
 
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
 GET_IMAGE_VECTOR = "SELECT matrix FROM ImageHaarMatrix WHERE imageid = %s"
-FIND_SIMILAR_IMAGES = "SELECT imageid, matrix <-> %s AS distance FROM ImageHaarMatrix ORDER BY distance LIMIT 10"
+FIND_SIMILAR_IMAGES = "SELECT imageid, matrix <-> %s AS distance FROM ImageHaarMatrix WHERE imageid != %s AND matrix <-> %s < %s"
 GET_IMAGE_DETAILS = """
 SELECT
     I.id,
@@ -112,6 +112,7 @@ def generate_html_page(duplicate_sets, page_num, total_pages, output_dir):
                         with div(_class="image-container"):
                             p("Duplicate (Remove)")
                             p(f"ID: {dup_image['id']}")
+                            p(f"Distance: {dup_image.get('distance')}")
                             img(
                                 src=PICTURE_PATH + dup_image["path"],
                                 _class="duplicate-image",
@@ -211,9 +212,19 @@ def main():
             if not result:
                 continue
             query_vector = result[0]
-            print(f"Found {query_vector.shape[0]}-dimensional vector")
-
-            postgres_cursor.execute(FIND_SIMILAR_IMAGES, (query_vector,))
+            try:
+                postgres_cursor.execute(
+                    FIND_SIMILAR_IMAGES,
+                    (
+                        query_vector,
+                        image_id,
+                        query_vector,
+                        args.threshold,
+                    ),
+                )
+            except Exception as e:
+                print(f"Error querying similar images for image ID {image_id}: {e}")
+                exit(1)
             similar_images = postgres_cursor.fetchall()
             print(f"There are {len(similar_images)} similar images")
 
@@ -226,7 +237,12 @@ def main():
                     for dup_id in duplicate_set_ids
                     if get_image_details(detail_mysql_cursor, dup_id) is not None
                 ]
-
+                # add similar_images["distance"] to duplicate_details
+                for detail in duplicate_details:
+                    for sim in similar_images:
+                        if detail["id"] == sim[0]:
+                            detail["distance"] = sim[1]
+                            break
                 if len(duplicate_details) > 1:
                     reference_image = select_reference_image(duplicate_details)
                     duplicates = [
