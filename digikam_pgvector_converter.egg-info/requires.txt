@@ -1,4 +1,7 @@
+black
+flake8
 mysql-connector-python
 psycopg2-binary
 pgvector
 numpy
+dominate

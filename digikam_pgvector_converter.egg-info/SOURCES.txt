@@ -1,3 +1,4 @@
+README.md
 mysql_to_pgvector.py
 pyproject.toml
 digikam_pgvector_converter.egg-info/PKG-INFO
