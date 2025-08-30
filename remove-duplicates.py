@@ -258,8 +258,14 @@ def main():
                     {"reference": reference_image, "duplicates": duplicates}
                 )
 
-                # Mark duplicates in the database
+                # Mark duplicates and reference image in the database
                 update_cursor = mysql_conn_detail.cursor()
+                # Mark the reference image
+                update_cursor.execute(
+                    "UPDATE Images SET dedupReason = %s WHERE id = %s",
+                    ("reference-image", reference_image["id"]),
+                )
+                # Mark the duplicates
                 for dup_image in duplicates:
                     update_cursor.execute(
                         "UPDATE Images SET dedupReason = %s WHERE id = %s",
