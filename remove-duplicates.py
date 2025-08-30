@@ -258,6 +258,16 @@ def main():
                     {"reference": reference_image, "duplicates": duplicates}
                 )
 
+                # Mark duplicates in the database
+                update_cursor = mysql_conn_detail.cursor()
+                for dup_image in duplicates:
+                    update_cursor.execute(
+                        "UPDATE Images SET dedupReason = %s WHERE id = %s",
+                        (output_dir, dup_image["id"]),
+                    )
+                mysql_conn_detail.commit()
+                update_cursor.close()
+
     # --- Generate HTML Report ---
     if all_duplicate_sets:
         sets_per_page = 250
