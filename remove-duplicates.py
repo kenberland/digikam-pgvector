@@ -17,7 +17,7 @@ SELECT
 FROM Images AS I
 JOIN Albums AS A ON I.album = A.id
 JOIN AlbumRoots AS AR ON A.albumRoot = AR.id
-WHERE I.id = 713
+WHERE I.dedupReason IS NULL
 """
 
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
@@ -167,117 +167,107 @@ def main():
     mysql_url = urlparse(args.mysql_conn_str)
     postgres_url = urlparse(args.postgres_conn_str)
 
-    try:
-        mysql_conn = mysql.connector.connect(
-            host=mysql_url.hostname,
-            user=mysql_url.username,
-            password=mysql_url.password,
-            database=mysql_url.path[1:],
-        )
-        # Use a separate cursor for fetching details inside the loop
-        detail_mysql_cursor = mysql_conn.cursor()
+    mysql_conn = mysql.connector.connect(
+        host=mysql_url.hostname,
+        user=mysql_url.username,
+        password=mysql_url.password,
+        database=mysql_url.path[1:],
+    )
+    # Use a separate cursor for fetching details inside the loop
+    detail_mysql_cursor = mysql_conn.cursor()
 
-        postgres_conn = psycopg2.connect(
-            host=postgres_url.hostname,
-            user=postgres_url.username,
-            password=postgres_url.password,
-            dbname=postgres_url.path[1:],
-        )
-        postgres_cursor = postgres_conn.cursor()
-        register_vector(postgres_conn)
+    postgres_conn = psycopg2.connect(
+        host=postgres_url.hostname,
+        user=postgres_url.username,
+        password=postgres_url.password,
+        dbname=postgres_url.path[1:],
+    )
+    postgres_cursor = postgres_conn.cursor()
+    register_vector(postgres_conn)
 
-        # --- Main Processing ---
-        count_cursor = mysql_conn.cursor()
-        count_cursor.execute(COUNT_ALL_IMAGES)
-        total_images = count_cursor.fetchone()[0]
-        count_cursor.close()
+    # --- Main Processing ---
+    count_cursor = mysql_conn.cursor()
+    count_cursor.execute(COUNT_ALL_IMAGES)
+    total_images = count_cursor.fetchone()[0]
+    count_cursor.close()
 
-        # Use an unbuffered cursor to iterate through all images
-        main_mysql_cursor = mysql_conn.cursor(buffered=False)
-        main_mysql_cursor.execute(GET_ALL_IMAGES_FOR_PROCESSING)
+    # Use an unbuffered cursor to iterate through all images
+    main_mysql_cursor = mysql_conn.cursor(buffered=False)
+    main_mysql_cursor.execute(GET_ALL_IMAGES_FOR_PROCESSING)
 
-        processed_images = set()
-        all_duplicate_sets = []
+    processed_images = set()
+    all_duplicate_sets = []
 
-        print(f"Processing {total_images} images...")
+    print(f"Processing {total_images} images...")
 
-        for i, (image_id, full_path) in enumerate(main_mysql_cursor):
-            print(f"  {i}/{total_images}: {full_path}")
+    for i, (image_id, full_path) in enumerate(main_mysql_cursor):
+        print(f"  {i}/{total_images}: {full_path}")
 
-            if image_id in processed_images:
-                continue
+        if image_id in processed_images:
+            continue
 
-            postgres_cursor.execute(GET_IMAGE_VECTOR, (image_id,))
-            result = postgres_cursor.fetchone()
-            if not result:
-                continue
-            query_vector = result[0]
-            try:
-                postgres_cursor.execute(
-                    FIND_SIMILAR_IMAGES,
-                    (
-                        query_vector,
-                        image_id,
-                        query_vector,
-                        args.threshold,
-                    ),
-                )
-            except Exception as e:
-                print(f"Error querying similar images for image ID {image_id}: {e}")
-                exit(1)
-            similar_images = postgres_cursor.fetchall()
-            print(f"There are {len(similar_images)} similar images")
-
-            if similar_images:
-                duplicate_set_ids = {image_id} | {row[0] for row in similar_images}
-                processed_images.update(duplicate_set_ids)
-
-                duplicate_details = [
-                    get_image_details(detail_mysql_cursor, dup_id)
-                    for dup_id in duplicate_set_ids
-                    if get_image_details(detail_mysql_cursor, dup_id) is not None
-                ]
-                # add similar_images["distance"] to duplicate_details
-                for detail in duplicate_details:
-                    for sim in similar_images:
-                        if detail["id"] == sim[0]:
-                            detail["distance"] = sim[1]
-                            break
-                if len(duplicate_details) > 1:
-                    reference_image = select_reference_image(duplicate_details)
-                    duplicates = [
-                        d for d in duplicate_details if d["id"] != reference_image["id"]
-                    ]
-                    all_duplicate_sets.append(
-                        {"reference": reference_image, "duplicates": duplicates}
-                    )
-
-        # --- Generate HTML Report ---
-        if all_duplicate_sets:
-            sets_per_page = 50
-            total_pages = math.ceil(len(all_duplicate_sets) / sets_per_page)
-            print(
-                f"\nFound {len(all_duplicate_sets)} duplicate sets. Generating {total_pages} HTML pages..."
+        postgres_cursor.execute(GET_IMAGE_VECTOR, (image_id,))
+        result = postgres_cursor.fetchone()
+        if not result:
+            continue
+        query_vector = result[0]
+        try:
+            postgres_cursor.execute(
+                FIND_SIMILAR_IMAGES,
+                (
+                    query_vector,
+                    image_id,
+                    query_vector,
+                    args.threshold,
+                ),
             )
+        except Exception as e:
+            print(f"Error querying similar images for image ID {image_id}: {e}")
+            exit(1)
+        similar_images = postgres_cursor.fetchall()
+        print(f"There are {len(similar_images)} similar images")
 
-            for i in range(total_pages):
-                start_index = i * sets_per_page
-                end_index = start_index + sets_per_page
-                page_sets = all_duplicate_sets[start_index:end_index]
-                generate_html_page(page_sets, i + 1, total_pages, output_dir)
+        if similar_images:
+            duplicate_set_ids = {image_id} | {row[0] for row in similar_images}
+            processed_images.update(duplicate_set_ids)
 
-            print(f"Done. HTML report generated in '{output_dir}'")
-        else:
-            print("No duplicates found.")
+            duplicate_details = [
+                get_image_details(detail_mysql_cursor, dup_id)
+                for dup_id in duplicate_set_ids
+                if get_image_details(detail_mysql_cursor, dup_id) is not None
+            ]
+            # add similar_images["distance"] to duplicate_details
+            for detail in duplicate_details:
+                for sim in similar_images:
+                    if detail["id"] == sim[0]:
+                        detail["distance"] = sim[1]
+                        break
+            if len(duplicate_details) > 1:
+                reference_image = select_reference_image(duplicate_details)
+                duplicates = [
+                    d for d in duplicate_details if d["id"] != reference_image["id"]
+                ]
+                all_duplicate_sets.append(
+                    {"reference": reference_image, "duplicates": duplicates}
+                )
 
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    # --- Generate HTML Report ---
+    if all_duplicate_sets:
+        sets_per_page = 50
+        total_pages = math.ceil(len(all_duplicate_sets) / sets_per_page)
+        print(
+            f"\nFound {len(all_duplicate_sets)} duplicate sets. Generating {total_pages} HTML pages..."
+        )
 
-    finally:
-        if "mysql_conn" in locals() and mysql_conn.is_connected():
-            mysql_conn.close()
-        if "postgres_conn" in locals():
-            postgres_conn.close()
+        for i in range(total_pages):
+            start_index = i * sets_per_page
+            end_index = start_index + sets_per_page
+            page_sets = all_duplicate_sets[start_index:end_index]
+            generate_html_page(page_sets, i + 1, total_pages, output_dir)
+
+        print(f"Done. HTML report generated in '{output_dir}'")
+    else:
+        print("No duplicates found.")
 
 
 if __name__ == "__main__":
