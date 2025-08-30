@@ -17,7 +17,7 @@ SELECT
 FROM Images AS I
 JOIN Albums AS A ON I.album = A.id
 JOIN AlbumRoots AS AR ON A.albumRoot = AR.id
-WHERE I.dedupReason IS NULL
+WHERE I.dedupReason IS NULL LIMIT 500
 """
 
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
@@ -167,14 +167,21 @@ def main():
     mysql_url = urlparse(args.mysql_conn_str)
     postgres_url = urlparse(args.postgres_conn_str)
 
-    mysql_conn = mysql.connector.connect(
+    # Main connection for the unbuffered cursor
+    mysql_conn_main = mysql.connector.connect(
         host=mysql_url.hostname,
         user=mysql_url.username,
         password=mysql_url.password,
         database=mysql_url.path[1:],
     )
-    # Use a separate cursor for fetching details inside the loop
-    detail_mysql_cursor = mysql_conn.cursor()
+    # A second, separate connection for fetching details inside the loop
+    mysql_conn_detail = mysql.connector.connect(
+        host=mysql_url.hostname,
+        user=mysql_url.username,
+        password=mysql_url.password,
+        database=mysql_url.path[1:],
+    )
+    detail_mysql_cursor = mysql_conn_detail.cursor()
 
     postgres_conn = psycopg2.connect(
         host=postgres_url.hostname,
@@ -186,13 +193,13 @@ def main():
     register_vector(postgres_conn)
 
     # --- Main Processing ---
-    count_cursor = mysql_conn.cursor()
+    count_cursor = mysql_conn_main.cursor()
     count_cursor.execute(COUNT_ALL_IMAGES)
     total_images = count_cursor.fetchone()[0]
     count_cursor.close()
 
     # Use an unbuffered cursor to iterate through all images
-    main_mysql_cursor = mysql_conn.cursor(buffered=False)
+    main_mysql_cursor = mysql_conn_main.cursor(buffered=False)
     main_mysql_cursor.execute(GET_ALL_IMAGES_FOR_PROCESSING)
 
     processed_images = set()
@@ -253,7 +260,7 @@ def main():
 
     # --- Generate HTML Report ---
     if all_duplicate_sets:
-        sets_per_page = 50
+        sets_per_page = 250
         total_pages = math.ceil(len(all_duplicate_sets) / sets_per_page)
         print(
             f"\nFound {len(all_duplicate_sets)} duplicate sets. Generating {total_pages} HTML pages..."
