@@ -17,9 +17,9 @@ SELECT
 FROM Images AS I
 JOIN Albums AS A ON I.album = A.id
 JOIN AlbumRoots AS AR ON A.albumRoot = AR.id
-WHERE I.dedupReason IS NULL LIMIT 500
+WHERE I.id = 82411 LIMIT 1
 """
-
+# WHERE I.dedupReason IS NULL AND
 COUNT_ALL_IMAGES = "SELECT COUNT(*) FROM Images"
 GET_IMAGE_VECTOR = "SELECT matrix FROM ImageHaarMatrix WHERE imageid = %s"
 FIND_SIMILAR_IMAGES = "SELECT imageid, matrix <-> %s AS distance FROM ImageHaarMatrix WHERE imageid != %s AND matrix <-> %s < %s"
@@ -273,6 +273,15 @@ def main():
                     )
                 mysql_conn_detail.commit()
                 update_cursor.close()
+        else:
+            # Mark this single image as a reference
+            update_cursor = mysql_conn_detail.cursor()
+            update_cursor.execute(
+                "UPDATE Images SET dedupReason = %s WHERE id = %s",
+                ("reference-image", image_id),
+            )
+            mysql_conn_detail.commit()
+            update_cursor.close()
 
     # --- Generate HTML Report ---
     if all_duplicate_sets:
